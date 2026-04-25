@@ -182,12 +182,12 @@ curl --cacert ca.crt \
 ```text
 {
   "major": "1",
-  "minor": "32",
-  "gitVersion": "v1.32.3",
-  "gitCommit": "32cc146f75aad04beaaa245a7157eb35063a9f99",
+  "minor": "36",
+  "gitVersion": "v1.36.0",
+  "gitCommit": "...",
   "gitTreeState": "clean",
-  "buildDate": "2025-03-11T19:52:21Z",
-  "goVersion": "go1.23.6",
+  "buildDate": "...",
+  "goVersion": "...",
   "compiler": "gc",
   "platform": "linux/arm64"
 }
