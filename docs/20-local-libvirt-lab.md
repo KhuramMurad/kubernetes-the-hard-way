@@ -1,0 +1,282 @@
+# Local libvirt Lab
+
+This lab maps the tutorial architecture onto one Fedora workstation using KVM/libvirt.
+
+Your local machine acts as the physical host. The Kubernetes lab still runs inside four Debian 12 virtual machines:
+
+```text
+Fedora host
+  |
+  +-- khw-jumpbox  192.168.122.210
+  +-- khw-server   192.168.122.211
+  +-- khw-node-0   192.168.122.212
+  +-- khw-node-1   192.168.122.213
+```
+
+Inside the lab, the architecture is unchanged:
+
+```text
+jumpbox -> administration host
+server  -> kube-apiserver, controller-manager, scheduler, etcd
+node-0  -> kubelet, kube-proxy, containerd, CNI
+node-1  -> kubelet, kube-proxy, containerd, CNI
+```
+
+## Why This Setup
+
+This gives you the same mental model as a small bare-metal or cloud lab:
+
+- every Kubernetes component has a real Linux systemd service
+- SSH, hostnames, certificates, kubeconfigs, and routes behave like the guide says
+- you can break and repair individual nodes
+- etcd backup, kubelet debugging, CNI routing, and CoreDNS all feel real
+
+It is slower than `kind`, but better for learning the architecture.
+
+## Host Requirements
+
+On the Fedora host:
+
+```bash
+sudo dnf install -y \
+  libvirt \
+  virt-install \
+  libguestfs-tools \
+  qemu-img \
+  genisoimage \
+  openssh-clients \
+  wget
+```
+
+Start libvirt:
+
+```bash
+sudo systemctl enable --now libvirtd
+sudo virsh net-start default
+sudo virsh net-autostart default
+```
+
+Confirm the default network:
+
+```bash
+sudo virsh net-list --all
+sudo virsh net-dumpxml default
+```
+
+The default network normally uses `192.168.122.0/24`.
+
+## Reserve Lab IPs
+
+Add DHCP reservations to the default libvirt network:
+
+```bash
+sudo virsh net-update default add ip-dhcp-host \
+  "<host mac='52:54:00:20:00:10' name='khw-jumpbox' ip='192.168.122.210'/>" \
+  --live --config
+
+sudo virsh net-update default add ip-dhcp-host \
+  "<host mac='52:54:00:20:00:11' name='khw-server' ip='192.168.122.211'/>" \
+  --live --config
+
+sudo virsh net-update default add ip-dhcp-host \
+  "<host mac='52:54:00:20:00:12' name='khw-node-0' ip='192.168.122.212'/>" \
+  --live --config
+
+sudo virsh net-update default add ip-dhcp-host \
+  "<host mac='52:54:00:20:00:13' name='khw-node-1' ip='192.168.122.213'/>" \
+  --live --config
+```
+
+If a reservation already exists, remove the old one or choose a different IP before continuing.
+
+## Create A Root SSH Key
+
+The main tutorial uses root SSH for learning convenience. Use your existing host key:
+
+```bash
+test -f ~/.ssh/id_ed25519.pub || ssh-keygen -t ed25519
+```
+
+## Download Debian 12 Cloud Image
+
+```bash
+mkdir -p ~/lab-images/kubernetes-the-hard-way
+cd ~/lab-images/kubernetes-the-hard-way
+
+wget -nc \
+  https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2
+```
+
+## Create VM Disks
+
+```bash
+cd ~/lab-images/kubernetes-the-hard-way
+
+for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
+  qemu-img create -f qcow2 \
+    -F qcow2 \
+    -b debian-12-generic-amd64.qcow2 \
+    "${vm}.qcow2" 20G
+done
+```
+
+Inject hostnames and root SSH access:
+
+```bash
+for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
+  sudo virt-customize -a "${vm}.qcow2" \
+    --hostname "${vm}" \
+    --ssh-inject root:file:"${HOME}/.ssh/id_ed25519.pub" \
+    --run-command "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config" \
+    --run-command "systemctl enable ssh"
+done
+```
+
+`prohibit-password` allows key-based root login while keeping password login disabled.
+
+## Create The VMs
+
+```bash
+cd ~/lab-images/kubernetes-the-hard-way
+
+sudo virt-install \
+  --name khw-jumpbox \
+  --memory 1024 \
+  --vcpus 1 \
+  --disk path="${PWD}/khw-jumpbox.qcow2",bus=virtio \
+  --os-variant debian12 \
+  --import \
+  --network network=default,model=virtio,mac=52:54:00:20:00:10 \
+  --graphics none \
+  --noautoconsole
+
+sudo virt-install \
+  --name khw-server \
+  --memory 2048 \
+  --vcpus 1 \
+  --disk path="${PWD}/khw-server.qcow2",bus=virtio \
+  --os-variant debian12 \
+  --import \
+  --network network=default,model=virtio,mac=52:54:00:20:00:11 \
+  --graphics none \
+  --noautoconsole
+
+sudo virt-install \
+  --name khw-node-0 \
+  --memory 2048 \
+  --vcpus 1 \
+  --disk path="${PWD}/khw-node-0.qcow2",bus=virtio \
+  --os-variant debian12 \
+  --import \
+  --network network=default,model=virtio,mac=52:54:00:20:00:12 \
+  --graphics none \
+  --noautoconsole
+
+sudo virt-install \
+  --name khw-node-1 \
+  --memory 2048 \
+  --vcpus 1 \
+  --disk path="${PWD}/khw-node-1.qcow2",bus=virtio \
+  --os-variant debian12 \
+  --import \
+  --network network=default,model=virtio,mac=52:54:00:20:00:13 \
+  --graphics none \
+  --noautoconsole
+```
+
+Check VM state:
+
+```bash
+sudo virsh list --all
+```
+
+## Connect To The Jumpbox
+
+```bash
+ssh root@192.168.122.210
+```
+
+From the jumpbox, clone your fork:
+
+```bash
+apt-get update
+apt-get -y install git
+
+git clone --depth 1 \
+  https://github.com/KhuramMurad/kubernetes-the-hard-way.git
+
+cd kubernetes-the-hard-way
+```
+
+Create `machines.txt`:
+
+```bash
+cat > machines.txt <<'EOF'
+192.168.122.211 server.kubernetes.local server
+192.168.122.212 node-0.kubernetes.local node-0 10.200.0.0/24
+192.168.122.213 node-1.kubernetes.local node-1 10.200.1.0/24
+EOF
+```
+
+Now continue with:
+
+```text
+docs/02-jumpbox.md
+docs/03-compute-resources.md
+...
+```
+
+You can skip the machine provisioning part of `docs/01-prerequisites.md` because the VMs already exist.
+
+## Host Convenience File
+
+From the repo on your Fedora host, generate a matching inventory:
+
+```bash
+scripts/local-libvirt-machines.sh
+```
+
+To write it into the repo:
+
+```bash
+scripts/local-libvirt-machines.sh > machines.txt
+```
+
+Copy it to the jumpbox if needed:
+
+```bash
+scp machines.txt root@192.168.122.210:~/kubernetes-the-hard-way/
+```
+
+## Practice Loop
+
+Use this setup in layers:
+
+1. Build the cluster once by following every command.
+2. Rebuild only certificates and kubeconfigs until the identities make sense.
+3. Break one worker and recover it using `journalctl`, `crictl`, and `kubectl describe node`.
+4. Delete the manual Pod routes and recreate them.
+5. Deploy CoreDNS and prove Service DNS works.
+6. Take an etcd snapshot, delete a workload, and restore.
+7. Repeat the smoke test without looking at the docs.
+
+## Reset
+
+Destroy only the lab VMs:
+
+```bash
+for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
+  sudo virsh destroy "${vm}" || true
+  sudo virsh undefine "${vm}" || true
+done
+```
+
+Remove disks:
+
+```bash
+rm -f ~/lab-images/kubernetes-the-hard-way/khw-*.qcow2
+```
+
+Keep the base Debian image so rebuilding is fast.
+
+Next: [Architecture](00-architecture.md)
