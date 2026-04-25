@@ -123,18 +123,39 @@ done
 Inject hostnames and root SSH access:
 
 ```bash
+cat > 10-dhcp.network <<'EOF'
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+EOF
+
 for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
   sudo LIBGUESTFS_BACKEND=direct virt-customize -a "${vm}.qcow2" \
     --hostname "${vm}" \
+    --install openssh-server \
     --ssh-inject root:file:"${HOME}/.ssh/id_ed25519.pub" \
-    --run-command "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config" \
-    --run-command "systemctl enable ssh"
+    --copy-in 10-dhcp.network:/etc/systemd/network/ \
+    --root-password password:kubernetes \
+    --run-command "mkdir -p /etc/ssh/sshd_config.d" \
+    --run-command "printf 'PermitRootLogin prohibit-password\nPubkeyAuthentication yes\nPasswordAuthentication no\n' > /etc/ssh/sshd_config.d/99-kubernetes-the-hard-way.conf" \
+    --run-command "ssh-keygen -A" \
+    --run-command "systemctl enable systemd-networkd" \
+    --run-command "systemctl unmask ssh.service" \
+    --run-command "systemctl enable ssh.service"
 done
 ```
 
 `prohibit-password` allows key-based root login while keeping password login disabled.
 
 `LIBGUESTFS_BACKEND=direct` tells libguestfs to customize the image directly instead of creating a temporary libvirt appliance. This avoids the common Fedora error where libvirt tries to read images under `/home` as its `qemu` user and gets `Permission denied`.
+
+The `10-dhcp.network` file makes the imported Debian cloud image request an address from libvirt DHCP. Without cloud-init metadata or an explicit network file, the VM can boot but never receive an IP address.
+
+`openssh-server` is installed explicitly because some minimal Debian cloud images boot successfully but do not have an SSH daemon listening on port `22`. If `ssh root@192.168.122.210` returns `Connection refused`, the VM has networking but `sshd` is not running.
+
+The temporary root password is `kubernetes`. It is only for console recovery with `sudo virsh console <vm-name>` while building the local lab. SSH password login remains disabled by the drop-in config.
 
 ## Move Disks Into libvirt Storage
 
