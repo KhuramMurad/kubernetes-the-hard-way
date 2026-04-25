@@ -50,3 +50,4 @@ This tutorial requires four (4) ARM64 or AMD64 based virtual or physical machine
 * [Troubleshooting](docs/18-troubleshooting.md)
 * [Cleaning Up](docs/19-cleanup.md)
 * [Local libvirt Lab](docs/20-local-libvirt-lab.md)
+* [Local VirtualBox Lab](docs/21-local-virtualbox-lab.md)
