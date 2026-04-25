@@ -124,7 +124,7 @@ Inject hostnames and root SSH access:
 
 ```bash
 for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
-  sudo virt-customize -a "${vm}.qcow2" \
+  sudo LIBGUESTFS_BACKEND=direct virt-customize -a "${vm}.qcow2" \
     --hostname "${vm}" \
     --ssh-inject root:file:"${HOME}/.ssh/id_ed25519.pub" \
     --run-command "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config" \
@@ -134,10 +134,35 @@ done
 
 `prohibit-password` allows key-based root login while keeping password login disabled.
 
+`LIBGUESTFS_BACKEND=direct` tells libguestfs to customize the image directly instead of creating a temporary libvirt appliance. This avoids the common Fedora error where libvirt tries to read images under `/home` as its `qemu` user and gets `Permission denied`.
+
+## Move Disks Into libvirt Storage
+
+System libvirt runs virtual machines as its own `qemu` user. On Fedora, that user normally cannot read files inside your home directory. Move the prepared images into libvirt's image directory before creating the VMs:
+
+```bash
+sudo mkdir -p /var/lib/libvirt/images/kubernetes-the-hard-way
+
+sudo cp \
+  ~/lab-images/kubernetes-the-hard-way/debian-12-generic-amd64.qcow2 \
+  ~/lab-images/kubernetes-the-hard-way/khw-*.qcow2 \
+  /var/lib/libvirt/images/kubernetes-the-hard-way/
+
+sudo chown qemu:qemu /var/lib/libvirt/images/kubernetes-the-hard-way/*.qcow2
+sudo chmod 0640 /var/lib/libvirt/images/kubernetes-the-hard-way/*.qcow2
+sudo restorecon -Rv /var/lib/libvirt/images/kubernetes-the-hard-way
+```
+
+Use the libvirt image directory for the remaining VM creation commands:
+
+```bash
+cd /var/lib/libvirt/images/kubernetes-the-hard-way
+```
+
 ## Create The VMs
 
 ```bash
-cd ~/lab-images/kubernetes-the-hard-way
+cd /var/lib/libvirt/images/kubernetes-the-hard-way
 
 sudo virt-install \
   --name khw-jumpbox \
