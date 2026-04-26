@@ -67,6 +67,8 @@ The default network normally uses `192.168.122.0/24`.
 
 ## Reserve Lab IPs
 
+Run this section on the Fedora host.
+
 Add DHCP reservations to the default libvirt network:
 
 ```bash
@@ -91,6 +93,8 @@ If a reservation already exists, remove the old one or choose a different IP bef
 
 ## Create A Root SSH Key
 
+Run this section on the Fedora host.
+
 The main tutorial uses root SSH for learning convenience. Use your existing host key:
 
 ```bash
@@ -98,6 +102,8 @@ test -f ~/.ssh/id_ed25519.pub || ssh-keygen -t ed25519
 ```
 
 ## Download Debian 12 Cloud Image
+
+Run this section on the Fedora host.
 
 ```bash
 mkdir -p ~/lab-images/kubernetes-the-hard-way
@@ -108,6 +114,8 @@ wget -nc \
 ```
 
 ## Create VM Disks
+
+Run this section on the Fedora host.
 
 ```bash
 cd ~/lab-images/kubernetes-the-hard-way
@@ -120,7 +128,25 @@ for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
 done
 ```
 
-Inject hostnames and root SSH access:
+## Create A Lab SSH Key
+
+Run this section on the Fedora host.
+
+Create a lab-only key that the jumpbox will use to administer the other machines:
+
+```bash
+ssh-keygen -t ed25519 \
+  -N "" \
+  -f khw-root
+```
+
+This key is intentionally scoped to these disposable local VMs. The public key will be trusted by all four machines, and the private key will be copied only into the jumpbox.
+
+## Customize The VM Images
+
+Run this section on the Fedora host.
+
+Inject hostnames, networking, SSH access, and the jumpbox administration key:
 
 ```bash
 cat > 10-dhcp.network <<'EOF'
@@ -135,7 +161,7 @@ for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
   sudo LIBGUESTFS_BACKEND=direct virt-customize -a "${vm}.qcow2" \
     --hostname "${vm}" \
     --install openssh-server \
-    --ssh-inject root:file:"${HOME}/.ssh/id_ed25519.pub" \
+    --ssh-inject root:file:khw-root.pub \
     --copy-in 10-dhcp.network:/etc/systemd/network/ \
     --root-password password:kubernetes \
     --run-command "mkdir -p /etc/ssh/sshd_config.d" \
@@ -145,6 +171,12 @@ for vm in khw-jumpbox khw-server khw-node-0 khw-node-1; do
     --run-command "systemctl unmask ssh.service" \
     --run-command "systemctl enable ssh.service"
 done
+
+sudo LIBGUESTFS_BACKEND=direct virt-customize -a khw-jumpbox.qcow2 \
+  --copy-in khw-root:/root/.ssh/ \
+  --run-command "mv /root/.ssh/khw-root /root/.ssh/id_ed25519" \
+  --run-command "chown root:root /root/.ssh/id_ed25519" \
+  --run-command "chmod 600 /root/.ssh/id_ed25519"
 ```
 
 `prohibit-password` allows key-based root login while keeping password login disabled.
@@ -155,9 +187,13 @@ The `10-dhcp.network` file makes the imported Debian cloud image request an addr
 
 `openssh-server` is installed explicitly because some minimal Debian cloud images boot successfully but do not have an SSH daemon listening on port `22`. If `ssh root@192.168.122.210` returns `Connection refused`, the VM has networking but `sshd` is not running.
 
+The `khw-root` key makes the jumpbox behave like the administration machine in the main tutorial. Without this, the worker nodes may trust a key from your host workstation, while the jumpbox has no matching private key and gets `Permission denied (publickey)`.
+
 The temporary root password is `kubernetes`. It is only for console recovery with `sudo virsh console <vm-name>` while building the local lab. SSH password login remains disabled by the drop-in config.
 
 ## Move Disks Into libvirt Storage
+
+Run this section on the Fedora host.
 
 System libvirt runs virtual machines as its own `qemu` user. On Fedora, that user normally cannot read files inside your home directory. Move the prepared images into libvirt's image directory before creating the VMs:
 
@@ -181,6 +217,8 @@ cd /var/lib/libvirt/images/kubernetes-the-hard-way
 ```
 
 ## Create The VMs
+
+Run this section on the Fedora host.
 
 ```bash
 cd /var/lib/libvirt/images/kubernetes-the-hard-way
@@ -238,9 +276,13 @@ sudo virsh list --all
 
 ## Connect To The Jumpbox
 
+Run the first command on the Fedora host:
+
 ```bash
 ssh root@192.168.122.210
 ```
+
+Run the rest of this section inside `khw-jumpbox` as `root`.
 
 From the jumpbox, clone your fork:
 
@@ -264,6 +306,20 @@ cat > machines.txt <<'EOF'
 EOF
 ```
 
+Clean accidental blank lines before using the machine database:
+
+```bash
+sed -i '/^[[:space:]]*$/d' machines.txt
+```
+
+Verify the jumpbox can reach the other machines:
+
+```bash
+while read IP FQDN HOST SUBNET; do
+  ssh root@${IP} hostname
+done < machines.txt
+```
+
 Now continue with:
 
 ```text
@@ -275,6 +331,8 @@ docs/03-compute-resources.md
 You can skip the machine provisioning part of `docs/01-prerequisites.md` because the VMs already exist.
 
 ## Host Convenience File
+
+Run this section on the Fedora host.
 
 From the repo on your Fedora host, generate a matching inventory:
 
@@ -292,6 +350,66 @@ Copy it to the jumpbox if needed:
 
 ```bash
 scp machines.txt root@192.168.122.210:~/kubernetes-the-hard-way/
+```
+
+## Repair Jumpbox SSH Access
+
+Run this section only if the jumpbox can SSH into itself but gets `Permission denied (publickey)` when connecting to `server`, `node-0`, or `node-1`.
+
+Generate a key inside `khw-jumpbox`:
+
+```bash
+ssh root@192.168.122.210
+ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519
+cat /root/.ssh/id_ed25519.pub
+```
+
+Copy the public key output. Then run the remaining commands on the Fedora host.
+
+Create a temporary public key file:
+
+```bash
+cat > /tmp/jumpbox-root.pub <<'EOF'
+PASTE_THE_PUBLIC_KEY_FROM_JUMPBOX_HERE
+EOF
+```
+
+Stop the target VMs:
+
+```bash
+for vm in khw-server khw-node-0 khw-node-1; do
+  sudo virsh destroy "$vm" || true
+done
+```
+
+Inject the jumpbox key:
+
+```bash
+cd /var/lib/libvirt/images/kubernetes-the-hard-way
+
+for vm in khw-server khw-node-0 khw-node-1; do
+  sudo LIBGUESTFS_BACKEND=direct virt-customize -a "${vm}.qcow2" \
+    --ssh-inject root:file:/tmp/jumpbox-root.pub
+done
+```
+
+Start the target VMs:
+
+```bash
+for vm in khw-server khw-node-0 khw-node-1; do
+  sudo virsh start "$vm"
+done
+```
+
+Return to `khw-jumpbox` and verify:
+
+```bash
+cd ~/kubernetes-the-hard-way
+sed -i '/^[[:space:]]*$/d' machines.txt
+
+while read IP FQDN HOST SUBNET; do
+  ssh root@${IP} hostname
+done < machines.txt
 ```
 
 ## Practice Loop
