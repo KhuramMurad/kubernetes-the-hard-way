@@ -78,6 +78,7 @@ Extract the component binaries from the release archives and organize them under
 
 ```bash
 {
+  set -e
   ARCH=$(dpkg --print-architecture)
   mkdir -p downloads/{client,cni-plugins,controller,worker}
   tar -xvf downloads/crictl-v1.36.0-linux-${ARCH}.tar.gz \
@@ -100,8 +101,32 @@ Extract the component binaries from the release archives and organize them under
 }
 ```
 
+Verify the expected binaries were extracted and organized before removing the release archives:
+
 ```bash
-rm -rf downloads/*gz
+{
+  test -x downloads/client/kubectl
+  test -x downloads/client/etcdctl
+  test -x downloads/controller/kube-apiserver
+  test -x downloads/controller/kube-controller-manager
+  test -x downloads/controller/kube-scheduler
+  test -x downloads/controller/etcd
+  test -x downloads/worker/kubelet
+  test -x downloads/worker/kube-proxy
+  test -x downloads/worker/containerd
+  test -x downloads/worker/runc
+  test -x downloads/cni-plugins/bridge
+  test -x downloads/cni-plugins/host-local
+  test -x downloads/cni-plugins/loopback
+}
+```
+
+Remove the downloaded release archives only after the verification step succeeds:
+
+```bash
+find downloads -maxdepth 1 -type f \
+  \( -name '*.tar.gz' -o -name '*.tgz' \) \
+  -delete
 ```
 
 Make the binaries executable.
