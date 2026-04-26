@@ -6,6 +6,25 @@ In this lab you will bootstrap two Kubernetes worker nodes. The following compon
 
 The commands in this section must be run from the `jumpbox`.
 
+Verify the worker binaries and CNI plugins exist on the `jumpbox` before copying them to the worker nodes:
+
+```bash
+{
+  test -f downloads/worker/crictl
+  test -f downloads/worker/containerd
+  test -f downloads/worker/containerd-shim-runc-v2
+  test -f downloads/worker/containerd-stress
+  test -f downloads/worker/kubelet
+  test -f downloads/worker/kube-proxy
+  test -f downloads/worker/runc
+  test -f downloads/cni-plugins/bridge
+  test -f downloads/cni-plugins/host-local
+  test -f downloads/cni-plugins/loopback
+}
+```
+
+If any of these checks fail, return to the [Setting up the Jumpbox](02-jumpbox.md) lab and re-run the download extraction and verification steps before continuing.
+
 Copy the Kubernetes binaries and systemd unit files to each worker instance:
 
 ```bash
@@ -39,9 +58,36 @@ done
 
 ```bash
 for HOST in node-0 node-1; do
+  ssh root@${HOST} "mkdir -p ~/cni-plugins"
+
   scp \
     downloads/cni-plugins/* \
     root@${HOST}:~/cni-plugins/
+done
+```
+
+Verify each worker received the required files:
+
+```bash
+for HOST in node-0 node-1; do
+  ssh root@${HOST} "
+    test -f crictl
+    test -f containerd
+    test -f containerd-shim-runc-v2
+    test -f containerd-stress
+    test -f kubelet
+    test -f kube-proxy
+    test -f runc
+    test -f cni-plugins/bridge
+    test -f cni-plugins/host-local
+    test -f cni-plugins/loopback
+    test -f containerd-config.toml
+    test -f kubelet-config.yaml
+    test -f kube-proxy-config.yaml
+    test -f containerd.service
+    test -f kubelet.service
+    test -f kube-proxy.service
+  "
 done
 ```
 
