@@ -2,6 +2,88 @@
 
 In this lab you will bootstrap the Kubernetes control plane. The following components will be installed on the `server` machine: Kubernetes API Server, Scheduler, and Controller Manager.
 
+## What You Are Building
+
+This lab turns the `server` machine into the Kubernetes control plane. etcd is already running from the previous lab. Now you add the API server, controller manager, and scheduler.
+
+```text
+jumpbox
+  |
+  |  scp Kubernetes control plane binaries
+  |  scp systemd unit files
+  |  scp scheduler config
+  |  scp API-server-to-kubelet RBAC manifest
+  v
+server
+  |
+  +-- etcd
+  |     +-- http://127.0.0.1:2379
+  |
+  +-- kube-apiserver
+  |     +-- https://server.kubernetes.local:6443
+  |     +-- reads/writes cluster state in etcd
+  |     +-- uses encryption-config.yaml for Secrets at rest
+  |
+  +-- kube-controller-manager
+  |     +-- watches API objects
+  |     +-- reconciles desired state
+  |
+  +-- kube-scheduler
+        +-- watches unscheduled Pods
+        +-- assigns Pods to worker nodes
+```
+
+The important file placement on `server` is:
+
+```text
+/usr/local/bin/
+  kube-apiserver
+  kube-controller-manager
+  kube-scheduler
+  kubectl
+
+/var/lib/kubernetes/
+  ca.crt
+  ca.key
+  kube-api-server.crt
+  kube-api-server.key
+  service-accounts.crt
+  service-accounts.key
+  encryption-config.yaml
+  kube-controller-manager.kubeconfig
+  kube-scheduler.kubeconfig
+
+/etc/kubernetes/config/
+  kube-scheduler.yaml
+
+/etc/systemd/system/
+  kube-apiserver.service
+  kube-controller-manager.service
+  kube-scheduler.service
+```
+
+The control plane starts through systemd:
+
+```text
+systemd
+  |
+  +-- kube-apiserver.service
+  +-- kube-controller-manager.service
+  +-- kube-scheduler.service
+```
+
+After the API server is running, you apply RBAC so the API server can talk to kubelets on worker nodes for logs, exec, and port-forward:
+
+```text
+kubectl apply -f kube-apiserver-to-kubelet.yaml
+        |
+        v
+ClusterRole + ClusterRoleBinding
+        |
+        v
+kube-apiserver is authorized to call kubelet APIs
+```
+
 ## Prerequisites
 
 Connect to the `jumpbox` and copy Kubernetes binaries and systemd unit files to the `server` machine:
