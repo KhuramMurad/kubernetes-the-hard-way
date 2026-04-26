@@ -105,19 +105,19 @@ Verify the expected binaries were extracted and organized before removing the re
 
 ```bash
 {
-  test -x downloads/client/kubectl
-  test -x downloads/client/etcdctl
-  test -x downloads/controller/kube-apiserver
-  test -x downloads/controller/kube-controller-manager
-  test -x downloads/controller/kube-scheduler
-  test -x downloads/controller/etcd
-  test -x downloads/worker/kubelet
-  test -x downloads/worker/kube-proxy
-  test -x downloads/worker/containerd
-  test -x downloads/worker/runc
-  test -x downloads/cni-plugins/bridge
-  test -x downloads/cni-plugins/host-local
-  test -x downloads/cni-plugins/loopback
+  test -f downloads/client/kubectl
+  test -f downloads/client/etcdctl
+  test -f downloads/controller/kube-apiserver
+  test -f downloads/controller/kube-controller-manager
+  test -f downloads/controller/kube-scheduler
+  test -f downloads/controller/etcd
+  test -f downloads/worker/kubelet
+  test -f downloads/worker/kube-proxy
+  test -f downloads/worker/containerd
+  test -f downloads/worker/runc
+  test -f downloads/cni-plugins/bridge
+  test -f downloads/cni-plugins/host-local
+  test -f downloads/cni-plugins/loopback
 }
 ```
 
@@ -134,6 +134,20 @@ Make the binaries executable.
 ```bash
 {
   chmod +x downloads/{client,cni-plugins,controller,worker}/*
+}
+```
+
+Verify the key binaries are now executable:
+
+```bash
+{
+  test -x downloads/client/kubectl
+  test -x downloads/client/etcdctl
+  test -x downloads/controller/kube-apiserver
+  test -x downloads/controller/etcd
+  test -x downloads/worker/kubelet
+  test -x downloads/worker/containerd
+  test -x downloads/cni-plugins/bridge
 }
 ```
 
