@@ -2,6 +2,68 @@
 
 In this lab you will bootstrap two Kubernetes worker nodes. The following components will be installed: [runc](https://github.com/opencontainers/runc), [container networking plugins](https://github.com/containernetworking/cni), [containerd](https://github.com/containerd/containerd), [kubelet](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet), and [kube-proxy](https://kubernetes.io/docs/concepts/cluster-administration/proxies).
 
+## What You Are Building
+
+This lab turns `node-0` and `node-1` into Kubernetes worker nodes. A worker node needs a container runtime, Pod networking, a kubelet, and kube-proxy.
+
+```text
+jumpbox
+  |
+  | render per-node configs
+  |   - 10-bridge.conf       uses each node's Pod CIDR
+  |   - kubelet-config.yaml  uses each node's Pod CIDR
+  |
+  | copy worker binaries, CNI plugins, kubeconfigs, certs, and systemd units
+  v
+node-0 / node-1
+```
+
+Each worker is assembled like this:
+
+```text
+worker node
+  |
+  +-- containerd
+  |     +-- runs Pods through the CRI socket
+  |     +-- uses runc as the low-level OCI runtime
+  |
+  +-- CNI plugins
+  |     +-- bridge
+  |     +-- host-local
+  |     +-- loopback
+  |     +-- allocate Pod IPs from this node's Pod CIDR
+  |
+  +-- kubelet
+  |     +-- reads /var/lib/kubelet/kubeconfig
+  |     +-- authenticates as system:node:<node-name>
+  |     +-- talks to https://server.kubernetes.local:6443
+  |     +-- registers the Node with the API server
+  |
+  +-- kube-proxy
+        +-- reads /var/lib/kube-proxy/kubeconfig
+        +-- programs Service traffic rules
+```
+
+The most important dependency chain is:
+
+```text
+/etc/hosts resolves server.kubernetes.local
+        |
+        v
+kubelet kubeconfig reaches https://server.kubernetes.local:6443
+        |
+        v
+kubelet presents kubelet certificate identity
+        |
+        v
+API server authenticates system:node:<node-name>
+        |
+        v
+Node appears in kubectl get nodes
+```
+
+If `kubectl get nodes` returns no nodes, check the kubelet logs first. Errors such as `Could not resolve host: server.kubernetes.local` or `lookup server.kubernetes.local ... i/o timeout` mean the host lookup table from the compute resources lab was not applied to the worker nodes.
+
 ## Prerequisites
 
 The commands in this section must be run from the `jumpbox`.
@@ -90,6 +152,20 @@ for HOST in node-0 node-1; do
   "
 done
 ```
+
+Verify each worker can resolve and reach the Kubernetes API server hostname before starting the kubelet:
+
+```bash
+for HOST in node-0 node-1; do
+  ssh root@${HOST} "
+    getent hosts server.kubernetes.local
+    curl --cacert /var/lib/kubelet/ca.crt \
+      https://server.kubernetes.local:6443/version
+  "
+done
+```
+
+If hostname resolution fails, return to the [Provisioning Compute Resources](03-compute-resources.md) lab and re-run the host lookup table steps that append the `hosts` file to each remote machine. The kubelet uses `server.kubernetes.local` from its kubeconfig, so worker registration will fail until that name resolves on every worker node.
 
 The commands in the next section must be run on each worker instance: `node-0`, `node-1`. Login to the worker instance using the `ssh` command. Example:
 
@@ -248,6 +324,19 @@ ssh root@server \
 NAME     STATUS   ROLES    AGE    VERSION
 node-0   Ready    <none>   1m     v1.36.0
 node-1   Ready    <none>   10s    v1.36.0
+```
+
+If no nodes are returned, check whether the kubelets can resolve and reach the API server:
+
+```bash
+for host in node-0 node-1; do
+  ssh root@${host} "
+    getent hosts server.kubernetes.local
+    curl --cacert /var/lib/kubelet/ca.crt \
+      https://server.kubernetes.local:6443/version
+    journalctl -u kubelet --no-pager -n 40
+  "
+done
 ```
 
 Next: [Configuring kubectl for Remote Access](10-configuring-kubectl.md)
