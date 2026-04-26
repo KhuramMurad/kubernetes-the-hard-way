@@ -182,6 +182,34 @@ Results:
 admin.kubeconfig
 ```
 
+Verify all expected kubeconfig files were created before distributing them:
+
+```bash
+{
+  test -f admin.kubeconfig
+  test -f kube-controller-manager.kubeconfig
+  test -f kube-proxy.kubeconfig
+  test -f kube-scheduler.kubeconfig
+  test -f node-0.kubeconfig
+  test -f node-1.kubeconfig
+}
+```
+
+List the generated kubeconfig files:
+
+```bash
+ls -1 *.kubeconfig
+```
+
+```text
+admin.kubeconfig
+kube-controller-manager.kubeconfig
+kube-proxy.kubeconfig
+kube-scheduler.kubeconfig
+node-0.kubeconfig
+node-1.kubeconfig
+```
+
 ## Distribute the Kubernetes Configuration Files
 
 Copy the `kubelet` and `kube-proxy` kubeconfig files to the `node-0` and `node-1` machines:
